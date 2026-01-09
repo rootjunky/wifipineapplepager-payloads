@@ -1,38 +1,30 @@
 #!/bin/bash
-# Title: External MediaTek Loader (Auto-Detect)
+# Title: Smart MediaTek Loader (Strict Config)
+# Version: 2.0 (Fixed)
 # Author: Huntz
-# Description: Refer to the README
-# Version: 2.0
 
 set -u
 
 # --- Configuration ---
-# MediaTek 7612u/7610u ID
 MTK_VID="0e8d"
 MTK_PID="7961"
 
-# Target Settings
-EXT_RADIO="radio2"
-EXT_IFACE="wlan2mon"
-EXT_CONFIG_SECTION="default_radio2"
+# Radio Setup
+START_INDEX=2  # Start at radio2 / wlan2mon
+MAX_INDEX=6    # Max radios to scan
 
 # --- Helpers ---
 have() { command -v "$1" >/dev/null 2>&1; }
 log_y() { have LOG && LOG yellow "$1" || echo -e "\033[33m[*] $1\033[0m"; }
 log_g() { have LOG && LOG green  "$1" || echo -e "\033[32m[+] $1\033[0m"; }
-err() {
-  if have ERROR_DIALOG; then ERROR_DIALOG "$1"; else echo "ERROR: $1" >&2; fi
-  exit 1
-}
 
 # ==========================================
-# 1. SMART DETECTION & FILTERING
+# 1. SMART SCANNING
 # ==========================================
 
-log_y "Scanning for External MediaTek ($MTK_VID:$MTK_PID)..."
+log_y "Scanning for MediaTek Devices ($MTK_VID:$MTK_PID)..."
 
-# A. Build Blocklist (Identify Internal Radio Path)
-# We find where wlan0/wlan1 live so we NEVER touch them.
+# A. Build Internal Blocklist
 INTERNAL_BLOCKLIST=""
 for iface in wlan0 wlan1 wlan0mon wlan1mon; do
     if [ -e "/sys/class/net/$iface/device" ]; then
@@ -41,172 +33,215 @@ for iface in wlan0 wlan1 wlan0mon wlan1mon; do
     fi
 done
 
-SELECTED_PATH=""
-SELECTED_EP_ID=""
-HIGHEST_SCORE=-1
+declare -a FOUND_DEVICES=()
 
-# B. Scan All USB Devices
+# B. Scan USB Bus
+# Only iterate if files exist to avoid literal wildcard expansion
 for dev in /sys/bus/usb/devices/*; do
-    if [ -f "$dev/idVendor" ] && [ -f "$dev/idProduct" ]; then
-        VID=$(cat "$dev/idVendor")
-        PID=$(cat "$dev/idProduct")
+    [ ! -e "$dev" ] && continue
+    [ ! -f "$dev/idVendor" ] && continue
+    [ ! -f "$dev/idProduct" ] && continue
 
-        # Match MediaTek ID
-        if [ "$VID" == "$MTK_VID" ] && [ "$PID" == "$MTK_PID" ]; then
-            
-            FULL_DEV_PATH=$(readlink -f "$dev")
-            
-            # Check Blocklist: Skip if this is the internal radio
-            IS_INTERNAL=0
-            for int_path in $INTERNAL_BLOCKLIST; do
-                if [[ "$int_path" == *"$FULL_DEV_PATH"* ]]; then
-                    IS_INTERNAL=1
-                    break
-                fi
-            done
-            
-            if [ "$IS_INTERNAL" -eq 1 ]; then
-                continue
+    VID=$(cat "$dev/idVendor")
+    PID=$(cat "$dev/idProduct")
+
+    if [ "$VID" == "$MTK_VID" ] && [ "$PID" == "$MTK_PID" ]; then
+        
+        FULL_DEV_PATH=$(readlink -f "$dev")
+        
+        # Skip Internal
+        IS_INTERNAL=0
+        for int_path in $INTERNAL_BLOCKLIST; do
+            [ -z "$int_path" ] && continue
+            if [[ "$int_path" == *"$FULL_DEV_PATH"* ]]; then
+                IS_INTERNAL=1; break
             fi
+        done
+        [ "$IS_INTERNAL" -eq 1 ] && continue
 
-            # C. Endpoint Selection Logic (King of the Hill)
-            # We look at all endpoints to find the best injection interface
-            for endpoint_dir in "$dev":*; do
-                if [ -f "$endpoint_dir/bInterfaceClass" ]; then
-                    CLASS=$(cat "$endpoint_dir/bInterfaceClass")
-                    
-                    # Score the endpoint
-                    CURRENT_SCORE=0
-                    
-                    # Class ff (Vendor Specific) is Gold (Score 20)
-                    if [ "$CLASS" == "ff" ]; then
-                        CURRENT_SCORE=20
-                    # Class e0 (Wireless) is Silver (Score 10)
-                    elif [ "$CLASS" == "e0" ]; then
-                        CURRENT_SCORE=10
-                    else
-                        # Skip Storage (08), Hubs (09), etc.
-                        continue
-                    fi
-                    
-                    # Add endpoint number to score (Higher index = better tiebreaker)
-                    EP_ID=$(echo "$endpoint_dir" | awk -F: '{print $NF}') # "1.3"
-                    EP_NUM=$(echo "$EP_ID" | awk -F. '{print $2}')       # "3"
-                    
-                    FINAL_SCORE=$((CURRENT_SCORE + EP_NUM))
-                    
-                    if [ "$FINAL_SCORE" -gt "$HIGHEST_SCORE" ]; then
-                        HIGHEST_SCORE=$FINAL_SCORE
-                        SELECTED_PATH="$endpoint_dir"
-                        SELECTED_EP_ID="$EP_ID"
-                    fi
+        # C. Endpoint Ranking (ff > e0, 1.3 > 1.0)
+        BEST_EP_PATH=""
+        HIGHEST_SCORE=-1
+        
+        for endpoint_dir in "$dev":*; do
+            [ ! -d "$endpoint_dir" ] && continue
+            if [ -f "$endpoint_dir/bInterfaceClass" ]; then
+                CLASS=$(cat "$endpoint_dir/bInterfaceClass")
+                
+                CURRENT_SCORE=0
+                if [ "$CLASS" == "ff" ]; then CURRENT_SCORE=20; 
+                elif [ "$CLASS" == "e0" ]; then CURRENT_SCORE=10; 
+                else continue; fi
+                
+                EP_ID=$(echo "$endpoint_dir" | awk -F: '{print $NF}')
+                EP_NUM=$(echo "$EP_ID" | awk -F. '{print $2}')
+                
+                # Default to 0 if EP_NUM is empty
+                [ -z "$EP_NUM" ] && EP_NUM=0
+
+                FINAL_SCORE=$((CURRENT_SCORE + EP_NUM))
+                
+                if [ "$FINAL_SCORE" -gt "$HIGHEST_SCORE" ]; then
+                    HIGHEST_SCORE=$FINAL_SCORE
+                    BEST_EP_PATH="$endpoint_dir"
                 fi
-            done
+            fi
+        done
+        
+        if [ -n "$BEST_EP_PATH" ]; then
+            FOUND_DEVICES+=("$BEST_EP_PATH")
         fi
     fi
 done
 
 # ==========================================
-# 2. NO DEVICE FOUND -> DISABLE LOGIC
+# 2. READ PINEAP DEFAULTS
 # ==========================================
-if [ -z "$SELECTED_PATH" ]; then
-    log_y "No External MediaTek Radio found."
-    log_y "Cleaning up: Disabling External Radio Config..."
-    
-    # Disable Wireless
-    uci set wireless.${EXT_RADIO}.disabled='1'
-    uci set wireless.${EXT_CONFIG_SECTION}.disabled='1'
-    
-    # Disable PineAP usage
-    uci set pineapd.${EXT_IFACE}.disable='1'
-    uci set pineapd.${EXT_IFACE}.primary='0'
-    uci set pineapd.${EXT_IFACE}.inject='0'
-
-    uci commit wireless
-    uci commit pineapd
-    
-    log_y "Reloading services..."
-    wifi reload && service pineapd restart
-    
-    exit 0
-fi
-
-# ==========================================
-# 3. DEVICE FOUND -> CONFIGURE
-# ==========================================
-
-log_g "Target Acquired: Endpoint $SELECTED_EP_ID"
-
-# Prepare Path (Strip /sys/devices/ prefix)
-UCI_PATH=$(readlink -f "$SELECTED_PATH" | sed 's#^/sys/devices/##')
-log_y "Binding $EXT_RADIO to: $UCI_PATH"
-
-# 1. Radio Device
-uci set wireless.${EXT_RADIO}=wifi-device
-uci set wireless.${EXT_RADIO}.type='mac80211'
-uci set wireless.${EXT_RADIO}.path="${UCI_PATH}"
-uci set wireless.${EXT_RADIO}.band='5g'
-uci set wireless.${EXT_RADIO}.channel='auto'
-uci set wireless.${EXT_RADIO}.htmode='VHT80'
-uci set wireless.${EXT_RADIO}.disabled='0'
-
-# 2. Interface (default_radio2)
-uci set wireless.${EXT_CONFIG_SECTION}=wifi-iface
-uci set wireless.${EXT_CONFIG_SECTION}.device="${EXT_RADIO}"
-uci set wireless.${EXT_CONFIG_SECTION}.ifname="${EXT_IFACE}"
-uci set wireless.${EXT_CONFIG_SECTION}.mode='monitor'
-uci set wireless.${EXT_CONFIG_SECTION}.disabled='0'
-
-uci commit wireless
-
-# ==========================================
-# 4. RELOAD & WAIT
-# ==========================================
-
-log_y "Reloading WiFi..."
-wifi reload
-
-log_y "Waiting for driver to attach..."
-# Loop check for up to 15 seconds
-MAX_RETRIES=15
-COUNT=0
-DRIVER_LOADED=0
-
-while [ $COUNT -lt $MAX_RETRIES ]; do
-    if [ -d "/sys/class/net/${EXT_IFACE}" ]; then
-        DRIVER_LOADED=1
-        break
-    fi
-    sleep 1
-    COUNT=$((COUNT+1))
-done
-
-if [ $DRIVER_LOADED -eq 0 ]; then
-    err "Driver Timeout!
-    The system attempted to load endpoint $SELECTED_EP_ID.
-    Please check dmesg for errors."
-fi
-
-# ==========================================
-# 5. FINAL SETUP & MIRRORING
-# ==========================================
-
-DRV=$(ethtool -i ${EXT_IFACE} 2>/dev/null | grep driver | cut -d' ' -f2)
-log_g "Success! Driver: $DRV"
-
-# Determine Internal Bands for Mirroring
 INT_IFACE="wlan1mon"
 [ ! -d "/sys/class/net/$INT_IFACE" ] && INT_IFACE="wlan1"
 CURRENT_BANDS=$(uci -q get pineapd.${INT_IFACE}.bands)
 [ -z "$CURRENT_BANDS" ] && CURRENT_BANDS="2,5"
 
-# Configure PineAP
-uci set pineapd.${EXT_IFACE}.disable='0'
-uci set pineapd.${EXT_IFACE}.primary='0'
-uci set pineapd.${EXT_IFACE}.inject='0'
-uci set pineapd.${EXT_IFACE}.hop='1'
-uci set pineapd.${EXT_IFACE}.bands="$CURRENT_BANDS"
+# ==========================================
+# 3. CONFIGURE DETECTED RADIOS
+# ==========================================
+
+COUNT=${#FOUND_DEVICES[@]}
+log_g "Found $COUNT external device(s)."
+
+CURRENT_IDX=$START_INDEX
+
+for DEV_PATH in "${FOUND_DEVICES[@]}"; do
+    RADIO_NAME="radio${CURRENT_IDX}"             # radio2
+    IFACE_NAME="wlan${CURRENT_IDX}mon"           # wlan2mon
+    
+    WIFI_IFACE_SEC="default_${RADIO_NAME}"       
+    PINE_IFACE_SEC="${IFACE_NAME}"
+
+    UCI_PATH=$(readlink -f "$DEV_PATH" | sed 's#^/sys/devices/##')
+    log_y "[$RADIO_NAME] Binding to $(basename $DEV_PATH)"
+
+    # --- A. /etc/config/wireless ---
+    
+    # 0. Safety: Clear previous configs to prevent ghost settings
+    uci -q delete wireless.${RADIO_NAME}
+    uci -q delete wireless.${WIFI_IFACE_SEC}
+
+    # 1. Config 'wifi-device'
+    uci set wireless.${RADIO_NAME}=wifi-device
+    uci set wireless.${RADIO_NAME}.type='mac80211'
+    uci set wireless.${RADIO_NAME}.path="${UCI_PATH}"
+    uci set wireless.${RADIO_NAME}.band='5g'
+    uci set wireless.${RADIO_NAME}.channel='auto'
+    uci set wireless.${RADIO_NAME}.htmode='VHT80'
+    uci set wireless.${RADIO_NAME}.disabled='0'
+    
+    # 2. Config 'wifi-iface' (Section: default_radio2)
+    uci set wireless.${WIFI_IFACE_SEC}=wifi-iface
+    uci set wireless.${WIFI_IFACE_SEC}.device="${RADIO_NAME}"
+    uci set wireless.${WIFI_IFACE_SEC}.ifname="${IFACE_NAME}"
+    uci set wireless.${WIFI_IFACE_SEC}.mode='monitor'
+    uci set wireless.${WIFI_IFACE_SEC}.disabled='0'
+
+    # --- B. /etc/config/pineapd ---
+    
+    # Safety Clean
+    uci -q delete pineapd.${PINE_IFACE_SEC}
+
+    # 3. Config 'interface' (Section: wlan2mon)
+    uci set pineapd.${PINE_IFACE_SEC}=interface
+    uci set pineapd.${PINE_IFACE_SEC}.device="${IFACE_NAME}"
+    uci set pineapd.${PINE_IFACE_SEC}.disable='0'
+    uci set pineapd.${PINE_IFACE_SEC}.bands="$CURRENT_BANDS"
+    uci set pineapd.${PINE_IFACE_SEC}.primary='0'
+    uci set pineapd.${PINE_IFACE_SEC}.inject='0'
+    uci set pineapd.${PINE_IFACE_SEC}.hop='1'
+    uci set pineapd.${PINE_IFACE_SEC}.hopspeed='fast'
+    uci set pineapd.${PINE_IFACE_SEC}.chantype='max'
+
+    CURRENT_IDX=$((CURRENT_IDX + 1))
+done
+
+# ==========================================
+# 4. CLEANUP STALE CONFIGS
+# ==========================================
+# If radios are unplugged, disable their entries.
+
+CLEANUP_IDX=$CURRENT_IDX
+while [ $CLEANUP_IDX -le $MAX_INDEX ]; do
+    RADIO_NAME="radio${CLEANUP_IDX}"
+    WIFI_IFACE_SEC="default_${RADIO_NAME}"
+    PINE_IFACE_SEC="wlan${CLEANUP_IDX}mon"
+    
+    # Disable Wireless
+    if uci -q get wireless.${RADIO_NAME} >/dev/null; then
+        log_y "Disabling stale wireless: $RADIO_NAME"
+        uci set wireless.${RADIO_NAME}.disabled='1'
+        # Check if section exists before setting
+        if uci -q get wireless.${WIFI_IFACE_SEC} >/dev/null; then
+             uci set wireless.${WIFI_IFACE_SEC}.disabled='1'
+        fi
+    fi
+
+    # Disable PineAP
+    if uci -q get pineapd.${PINE_IFACE_SEC} >/dev/null; then
+        log_y "Disabling stale PineAP: $PINE_IFACE_SEC"
+        uci set pineapd.${PINE_IFACE_SEC}.disable='1'
+        uci set pineapd.${PINE_IFACE_SEC}.inject='0'
+        uci set pineapd.${PINE_IFACE_SEC}.hop='0'
+    fi
+
+    CLEANUP_IDX=$((CLEANUP_IDX + 1))
+done
+
+uci commit wireless
 uci commit pineapd
 
+# ==========================================
+# 5. RELOAD & VERIFY
+# ==========================================
+
+log_y "Reloading WiFi..."
+wifi reload
+
+if [ "$COUNT" -eq 0 ]; then
+    log_y "No external radios active. Syncing PineAP..."
+    service pineapd restart
+    exit 0
+fi
+
+log_y "Waiting for driver(s)..."
+sleep 2
+
+MAX_RETRIES=15
+WAIT_IDX=$START_INDEX
+TARGET_IDX=$CURRENT_IDX
+
+while [ $WAIT_IDX -lt $TARGET_IDX ]; do
+    IFACE_NAME="wlan${WAIT_IDX}mon"
+    RETRY=0
+    LOADED=0
+    
+    echo -n "Checking $IFACE_NAME"
+    while [ $RETRY -lt $MAX_RETRIES ]; do
+        if [ -d "/sys/class/net/${IFACE_NAME}" ]; then
+            LOADED=1
+            echo " [OK]"
+            break
+        fi
+        echo -n "."
+        sleep 1
+        RETRY=$((RETRY+1))
+    done
+    
+    if [ $LOADED -eq 0 ]; then
+        echo " [TIMEOUT]"
+        log_y "Warning: $IFACE_NAME did not appear. (Driver renaming issue?)"
+    fi
+    WAIT_IDX=$((WAIT_IDX + 1))
+done
+
+log_g "Restarting PineAP..."
 service pineapd restart
-log_g "DONE."
+
+log_g "DONE. Active Radios: $((TARGET_IDX - START_INDEX))"
