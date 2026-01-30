@@ -2,6 +2,57 @@
 
 All notable changes to Nautilus will be documented in this file.
 
+## [1.8.0] - 2026-01-30
+
+### Added
+
+- **Themes Support**: New resource type for browsing and managing pager themes
+  - Scans `/root/themes/` for local themes (looks for `theme.json`)
+  - Fetches from `hak5/wifipineapplepager-themes` GitHub repo for Merged/PRs
+  - Parses theme metadata (name, description, author) from `theme.json`
+- **Ringtones Support**: New resource type for browsing RTTTL ringtones
+  - Scans `/root/ringtones/` for local `.rtttl` files
+  - Fetches from `hak5/wifipineapplepager-ringtones` GitHub repo for Merged/PRs
+  - Extracts ringtone name from RTTTL format
+- **Dynamic Repository Selection**: Each resource type now fetches from its own GitHub repository
+- **Per-resource Caching**: Separate localStorage cache for each resource type's Merged and PR data
+
+### Changed
+
+- `build_cache.sh`: Added `scan_themes()` and `scan_ringtones()` functions for new resource types
+- `api.sh`: Updated path validation to allow `/root/themes/` and `/root/ringtones/`
+- `index.html`: Added Themes and Ringtones tabs in resource selector row
+- Resource paths updated: `RESOURCE_REPOS` and `RESOURCE_PATHS` now include themes and ringtones
+
+## [1.7.1] - 2026-01-30
+
+### Added
+
+- **Origin Proxy (`proxy.py`)**: Python TCP proxy on port 8890 that rewrites WebSocket `Origin` header to bypass Cross-Origin restrictions when connecting to the Pineapple API (port 1471).
+- **Auth Token Passthrough**: `api.sh` now proxies login to port 1471 and returns auth token, allowing Nautilus to set the required cookie.
+- **Python 3 Requirement**: Nautilus now requires Python 3 to run. Payloads will prompt to install python3 if not found.
+
+### Fixed
+
+- **Error Overlay**: Fixed "Lost connection" message appearing on top of working pager. Switched from `hidden` attribute to `display: none/flex` for consistent visibility control.
+- **Layout Gaps**: Fixed sliced-image table layout gaps by resetting padding/font-size on cells.
+- **Pager Scaling**: Fixed pager scaling to use `transform: scale()` instead of `width` property, preserving aspect ratio and preventing layout shifts.
+
+## [1.7.0] - 2026-01-30
+
+### Added
+
+- **Virtual Pager Integration**: Integrated the Virtual Pager UI into Nautilus.
+  - Adds a "Toggle Pager" button in the shell header.
+  - Displays the live pager screen above the terminal.
+  - Supports virtual button inputs (D-pad, A, B).
+- **Responsive Pager Dashboard**: The Virtual Pager automatically scales to fit available width while maintaining pixel-perfect layout.
+
+### Fixed
+
+- **Pager Connection**: Fixed WebSocket connection logic to use the browser's hostname and explicit port 1471, ensuring connection to the main Pineapple API instead of the payload's local uhttpd instance.
+
+
 ## [1.6.1] - 2025-01-29
 
 ### Added

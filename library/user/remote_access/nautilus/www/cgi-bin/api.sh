@@ -90,10 +90,23 @@ verify_auth() {
         local session=$(head -c 32 /dev/urandom 2>/dev/null | md5sum | cut -d' ' -f1)
         local session_time=$(date +%s)
         echo "${session}:${session_time}" > "$AUTH_SESSION_FILE"
+        
+        # Proxy authentication to Pineapple API (port 1471) to get token for Pager
+        # Escaping password for JSON
+        local json_pw=$(echo "$password" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\//\\\//g')
+        local pine_resp=$(curl -s -X POST http://127.0.0.1:1471/api/login -d "{\"username\":\"root\",\"password\":\"$json_pw\"}")
+        local pine_token=$(echo "$pine_resp" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+        
         echo "Content-Type: application/json"
         echo "Set-Cookie: nautilus_session=$session; Path=/; HttpOnly; SameSite=Strict"
         echo ""
-        echo '{"success":true}'
+        
+        # If we got a valid token (simple check if it looks like a token)
+        if [ "${#pine_token}" -gt 20 ]; then
+             echo "{\"success\":true,\"pineapple_token\":\"$pine_token\"}"
+        else
+             echo '{"success":true}'
+        fi
     else
         echo "Content-Type: application/json"
         echo ""
@@ -241,21 +254,21 @@ delete_payload() {
     esac
 
     case "$payload_path" in
-        /root/payloads/user/*) ;;
+        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*) ;;
         *)
             echo "Content-Type: application/json"
             echo ""
-            echo '{"error":"Invalid path: must be in /root/payloads/user/"}'
+            echo '{"error":"Invalid path"}'
             exit 1
             ;;
     esac
 
     case "$payload_path" in
-        */payload.sh) ;;
+        */payload.sh|*/theme.json|*.rtttl) ;;
         *)
             echo "Content-Type: application/json"
             echo ""
-            echo '{"error":"Invalid payload file"}'
+            echo '{"error":"Invalid file type"}'
             exit 1
             ;;
     esac
@@ -298,21 +311,21 @@ view_source() {
     esac
 
     case "$payload_path" in
-        /root/payloads/user/*) ;;
+        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*) ;;
         *)
             echo "Content-Type: application/json"
             echo ""
-            echo '{"error":"Invalid path: must be in /root/payloads/user/"}'
+            echo '{"error":"Invalid path"}'
             exit 1
             ;;
     esac
 
     case "$payload_path" in
-        */payload.sh) ;;
+        */payload.sh|*/theme.json|*.rtttl) ;;
         *)
             echo "Content-Type: application/json"
             echo ""
-            echo '{"error":"Invalid payload file"}'
+            echo '{"error":"Invalid file type"}'
             exit 1
             ;;
     esac
@@ -352,13 +365,13 @@ run_payload() {
     esac
 
     case "$rpath" in
-        /root/payloads/user/*) ;;
+        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*) ;;
         *) echo "Content-Type: text/plain"; echo ""; echo "Invalid path"; exit 1 ;;
     esac
 
     case "$rpath" in
-        */payload.sh) ;;
-        *) echo "Content-Type: text/plain"; echo ""; echo "Invalid payload file"; exit 1 ;;
+        */payload.sh|*/theme.json|*.rtttl) ;;
+        *) echo "Content-Type: text/plain"; echo ""; echo "Invalid file type"; exit 1 ;;
     esac
 
     [ ! -f "$rpath" ] && { echo "Content-Type: text/plain"; echo ""; echo "Not found"; exit 1; }
