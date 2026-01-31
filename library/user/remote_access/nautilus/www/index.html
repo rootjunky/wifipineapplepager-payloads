@@ -2305,25 +2305,28 @@
   <div class="container">
     <div class="sidebar">
       <div class="tabs-container">
-        <div class="tabs-row resource-row">
-          <div class="tab resource-tab active" data-resource="payloads" onclick="switchResource('payloads')">Payloads
-          </div>
-          <div class="tab resource-tab" data-resource="alerts" onclick="switchResource('alerts')">Alerts</div>
-          <div class="tab resource-tab" data-resource="recon" onclick="switchResource('recon')">Recon</div>
-        </div>
-        <div class="tabs-row resource-row">
-          <div class="tab resource-tab" data-resource="themes" onclick="switchResource('themes')">Themes</div>
-          <div class="tab resource-tab" data-resource="ringtones" onclick="switchResource('ringtones')">Ringtones</div>
-        </div>
         <div class="tabs-row favourites-row">
           <div class="tab favourites" data-tab="favourites" onclick="switchTab('favourites')"><svg viewBox="0 0 24 24">
               <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
             </svg>Favourites</div>
+          <div class="tab resource-tab" data-resource="loot" onclick="switchResource('loot')">💰 Loot</div>
         </div>
+        <div class="tabs-row resource-row">
+          <div class="tab resource-tab active" data-resource="payloads" onclick="switchResource('payloads')">📦 Payloads
+          </div>
+          <div class="tab resource-tab" data-resource="alerts" onclick="switchResource('alerts')">🔔 Alerts</div>
+          <div class="tab resource-tab" data-resource="recon" onclick="switchResource('recon')">🧐 Recon</div>
+        </div>
+        <div class="tabs-row resource-row">
+          <div class="tab resource-tab" data-resource="themes" onclick="switchResource('themes')">🎨 Themes</div>
+          <div class="tab resource-tab" data-resource="ringtones" onclick="switchResource('ringtones')">🎵 Ringtones
+          </div>
+        </div>
+
         <div class="tabs-row">
-          <div class="tab active" data-tab="local" onclick="switchTab('local')">Local</div>
-          <div class="tab" data-tab="merged" onclick="switchTab('merged')">Merged</div>
-          <div class="tab" data-tab="prs" onclick="switchTab('prs')">PRs</div>
+          <div class="tab active" data-tab="local" onclick="switchTab('local')">🖴 Local</div>
+          <div class="tab" data-tab="merged" onclick="switchTab('merged')">☁️ Merged</div>
+          <div class="tab" data-tab="prs" onclick="switchTab('prs')">☁️ PRs</div>
         </div>
       </div>
       <div class="tab-content" id="tab-favourites">
@@ -2985,8 +2988,34 @@
       filteredGithub = {};
       githubPRs = [];
       filteredPRs = [];
-      loadGithubPayloads();
-      loadGithubPRs();
+      // Loot is local-only, hide GitHub tabs
+      const isLoot = res === 'loot';
+      document.querySelectorAll('.tab[data-tab="merged"], .tab[data-tab="prs"]').forEach(t => t.style.display = isLoot ? 'none' : '');
+      if (isLoot) {
+        switchTab('local');
+        // Show download all button for loot
+        renderLootHeader();
+      } else {
+        loadGithubPayloads();
+        loadGithubPRs();
+        // Remove loot header if exists
+        const lootHeader = document.getElementById('lootHeader');
+        if (lootHeader) lootHeader.remove();
+      }
+    }
+
+    function renderLootHeader() {
+      let header = document.getElementById('lootHeader');
+      if (!header) {
+        header = document.createElement('div');
+        header.id = 'lootHeader';
+        header.style.cssText = 'padding:8px 12px;background:var(--card);border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;';
+        const localTab = document.getElementById('tab-local');
+        if (localTab) localTab.insertBefore(header, localTab.firstChild);
+      }
+      const total = Object.values(payloads).flat().length;
+      header.innerHTML = '<span style="flex:1;font-size:0.85em;color:var(--text2)">💰 ' + total + ' loot files</span>' +
+        '<button class="btn secondary" style="padding:4px 10px;font-size:0.8em" onclick="downloadAllLoot()"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="margin-right:4px"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Download All</button>';
     }
 
     function switchTab(tab) {
@@ -4245,13 +4274,75 @@
           const desc = selected.desc ? escHtml(selected.desc) : '';
           const authorHtml = author ? '<span><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>' + author + '</span>' : '';
           const descHtml = desc ? '<div class="description">' + desc + '</div>' : '';
-          const isNautilus = selected.path.includes('/remote_access/nautilus/');
-          const deleteRow = isNautilus ? '' : '<button class="btn secondary btn-half" id="deleteBtn" onclick="deletePayload()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Delete</button>';
-          const favActive = isFavourite(selected.path, 'local') ? 'active' : '';
-          $('detail').innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between"><h2>' + escHtml(selected.name) + '</h2><button class="fav-btn ' + favActive + '" id="favBtn" onclick="toggleFavourite(\'' + escHtml(selected.path) + '\',\'local\',\'' + escHtml(selected.name) + '\')" title="' + (favActive ? 'Remove from Favourites' : 'Add to Favourites') + '"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button></div><div class="meta">' + authorHtml + '<span><svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>' + cat + '</span></div>' + descHtml + '<div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="run()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div>' + deleteRow + '</div>';
-          updateRunBtn();
+
+          // Loot files have download/delete buttons instead of run/source
+          if (currentResource === 'loot') {
+            const sizeStr = selected.size ? formatFileSize(selected.size) : '';
+            const sizeHtml = sizeStr ? '<span><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 9h-2v6h2v-6zm0-4h-2v2h2V7z"/></svg>' + sizeStr + '</span>' : '';
+            $('detail').innerHTML = '<h2>' + escHtml(selected.name) + '</h2><div class="meta"><span><svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>' + cat + '</span>' + sizeHtml + '</div>' + descHtml + '<div class="actions"><div class="btn-row"><button class="btn" onclick="downloadLoot()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Download</button><button class="btn secondary" onclick="viewLootContent()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>View</button></div><button class="btn secondary btn-half" style="background:var(--danger);border-color:var(--danger)" onclick="deleteLoot()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Delete</button></div>';
+          } else {
+            const isNautilus = selected.path.includes('/remote_access/nautilus/');
+            const deleteRow = isNautilus ? '' : '<button class="btn secondary btn-half" id="deleteBtn" onclick="deletePayload()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Delete</button>';
+            const favActive = isFavourite(selected.path, 'local') ? 'active' : '';
+            $('detail').innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between"><h2>' + escHtml(selected.name) + '</h2><button class="fav-btn ' + favActive + '" id="favBtn" onclick="toggleFavourite(\'' + escHtml(selected.path) + '\',\'local\',\'' + escHtml(selected.name) + '\')" title="' + (favActive ? 'Remove from Favourites' : 'Add to Favourites') + '"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button></div><div class="meta">' + authorHtml + '<span><svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>' + cat + '</span></div>' + descHtml + '<div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="run()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div>' + deleteRow + '</div>';
+            updateRunBtn();
+          }
           break;
         }
+      }
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    async function downloadLoot() {
+      if (!selected || currentResource !== 'loot') return;
+      const url = 'cgi-bin/api.sh?action=download_loot&path=' + encodeURIComponent(selected.path);
+      window.location.href = url;
+    }
+
+    async function downloadAllLoot() {
+      window.location.href = 'cgi-bin/api.sh?action=download_loot_all';
+    }
+
+    async function deleteLoot() {
+      if (!selected || currentResource !== 'loot') return;
+      if (!confirm('Delete "' + selected.name + '"?')) return;
+      try {
+        const resp = await fetch('cgi-bin/api.sh?action=delete_loot&path=' + encodeURIComponent(selected.path));
+        const data = await resp.json();
+        if (data.success) {
+          $('status').textContent = 'Deleted: ' + selected.name;
+          selected = null;
+          renderDetail();
+          refreshPayloads();
+        } else {
+          $('status').textContent = 'Error: ' + (data.error || 'Delete failed');
+        }
+      } catch (e) {
+        $('status').textContent = 'Error deleting file';
+      }
+    }
+
+    async function viewLootContent() {
+      if (!selected || currentResource !== 'loot') return;
+      $('consoleTitle').textContent = 'File: ' + selected.name;
+      $('console').innerHTML = '<div class="line">Loading...</div>';
+      try {
+        const resp = await fetch('cgi-bin/api.sh?action=view_source&path=' + encodeURIComponent(selected.path));
+        const text = await resp.text();
+        if (resp.ok) {
+          $('console').innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all">' + escHtml(text) + '</pre>';
+        } else {
+          $('console').innerHTML = '<div class="line red">Error loading file</div>';
+        }
+      } catch (e) {
+        $('console').innerHTML = '<div class="line red">Error: ' + escHtml(e.message) + '</div>';
       }
     }
 

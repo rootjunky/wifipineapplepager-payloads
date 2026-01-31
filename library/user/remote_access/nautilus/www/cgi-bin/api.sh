@@ -311,7 +311,7 @@ view_source() {
     esac
 
     case "$payload_path" in
-        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*) ;;
+        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*|/root/loot/*) ;;
         *)
             echo "Content-Type: application/json"
             echo ""
@@ -320,7 +320,9 @@ view_source() {
             ;;
     esac
 
+    # Loot files can be any type, others must match specific patterns
     case "$payload_path" in
+        /root/loot/*) ;;
         */payload.sh|*/theme.json|*.rtttl) ;;
         *)
             echo "Content-Type: application/json"
@@ -1984,6 +1986,128 @@ del_config() {
     printf '{"success":true,"key":"%s"}\n' "$key"
 }
 
+download_loot() {
+    local loot_path="$1"
+    
+    # Validate path is in /root/loot
+    case "$loot_path" in
+        /root/loot/*) ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid path: must be in /root/loot/"}'
+            return
+            ;;
+    esac
+    
+    # Security: no path traversal
+    case "$loot_path" in
+        *..*)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Path traversal not allowed"}'
+            return
+            ;;
+    esac
+    
+    if [ ! -f "$loot_path" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"File not found"}'
+        return
+    fi
+    
+    local filename=$(basename "$loot_path")
+    local mimetype=$(file -b --mime-type "$loot_path" 2>/dev/null || echo "application/octet-stream")
+    local filesize=$(stat -c %s "$loot_path" 2>/dev/null || stat -f %z "$loot_path" 2>/dev/null || echo "0")
+    
+    echo "Content-Type: $mimetype"
+    echo "Content-Disposition: attachment; filename=\"$filename\""
+    echo "Content-Length: $filesize"
+    echo ""
+    cat "$loot_path"
+}
+
+download_loot_all() {
+    local loot_dir="/root/loot"
+    
+    if [ ! -d "$loot_dir" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Loot directory not found"}'
+        return
+    fi
+    
+    # Check if there are any files
+    local file_count=$(find "$loot_dir" -type f 2>/dev/null | wc -l)
+    if [ "$file_count" -eq 0 ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"No loot files found"}'
+        return
+    fi
+    
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local zipname="loot_${timestamp}.zip"
+    local tmpzip="/tmp/$zipname"
+    
+    # Create zip of loot directory
+    cd /root && zip -rq "$tmpzip" loot 2>/dev/null
+    
+    if [ ! -f "$tmpzip" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Failed to create archive"}'
+        return
+    fi
+    
+    local filesize=$(stat -c %s "$tmpzip" 2>/dev/null || stat -f %z "$tmpzip" 2>/dev/null || echo "0")
+    
+    echo "Content-Type: application/zip"
+    echo "Content-Disposition: attachment; filename=\"$zipname\""
+    echo "Content-Length: $filesize"
+    echo ""
+    cat "$tmpzip"
+    rm -f "$tmpzip"
+}
+
+delete_loot() {
+    local loot_path="$1"
+    
+    # Validate path is in /root/loot
+    case "$loot_path" in
+        /root/loot/*) ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid path: must be in /root/loot/"}'
+            return
+            ;;
+    esac
+    
+    # Security: no path traversal
+    case "$loot_path" in
+        *..*)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Path traversal not allowed"}'
+            return
+            ;;
+    esac
+    
+    if [ ! -f "$loot_path" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"File not found"}'
+        return
+    fi
+    
+    rm -f "$loot_path"
+    echo "Content-Type: application/json"
+    echo ""
+    echo '{"success":true}'
+}
+
 action=""
 rpath=""
 response=""
@@ -2072,6 +2196,9 @@ case "$action" in
     del_config) require_auth; del_config "$config_key" ;;
     get_favourites) require_auth; get_favourites ;;
     set_favourites) require_auth; set_favourites ;;
+    download_loot) require_auth; download_loot "$rpath" ;;
+    download_loot_all) require_auth; download_loot_all ;;
+    delete_loot) require_auth; delete_loot "$rpath" ;;
     *) echo "Content-Type: application/json"; echo ""; echo '{"error":"Unknown action"}' ;;
 esac
 
