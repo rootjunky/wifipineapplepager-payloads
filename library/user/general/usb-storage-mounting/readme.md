@@ -7,10 +7,10 @@ This repository contains a WiFi Pineapple payload.
 
 A short video overview and review of this payload is available on YouTube:
 
-https://youtube.com/shorts/3a9UpTbq8WA?feature=share
+https://youtu.be/XPj7J49M6YM
 
 
 
 ## Description
 
-Privacy Mode Payload with censor your mac address and access point names in the Recon menu on the WiFi PineApple Pager.
+USB storage Mount Payload will mount and unmount usb storage on the WiFi PineApple Pager.
