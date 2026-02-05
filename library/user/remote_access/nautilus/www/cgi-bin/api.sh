@@ -1017,11 +1017,15 @@ install_github() {
 
     case "$github_url" in
         https://raw.githubusercontent.com/*/wifipineapplepager-payloads/*/payload.sh)
+            install_type="payload"
+            ;;
+        https://raw.githubusercontent.com/*/wifipineapplepager-themes/*/theme.json)
+            install_type="theme"
             ;;
         *)
             echo "Content-Type: text/plain"
             echo ""
-            echo "Security: Only wifipineapplepager-payloads repos allowed"
+            echo "Security: Only wifipineapplepager-payloads and wifipineapplepager-themes repos allowed"
             exit 1
             ;;
     esac
@@ -1039,15 +1043,26 @@ install_github() {
 
     url_path="${github_url#https://raw.githubusercontent.com/}"
     repo_owner="${url_path%%/*}"
-    url_path="${url_path#*/wifipineapplepager-payloads/}"
-    branch="${url_path%%/*}"
-    folder_path="${url_path#*/}"
-    folder_path="${folder_path%/payload.sh}"
-    full_repo="${repo_owner}/wifipineapplepager-payloads"
 
-    local rel_path="${folder_path#library/}"
-    local target_path="/root/payloads/${rel_path}"
-    local payload_name="${rel_path##*/}"
+    if [ "$install_type" = "theme" ]; then
+        url_path="${url_path#*/wifipineapplepager-themes/}"
+        branch="${url_path%%/*}"
+        folder_path="${url_path#*/}"
+        folder_path="${folder_path%/theme.json}"
+        full_repo="${repo_owner}/wifipineapplepager-themes"
+        local rel_path="${folder_path#themes/}"
+        local target_path="/root/themes/${rel_path}"
+        local payload_name="${rel_path##*/}"
+    else
+        url_path="${url_path#*/wifipineapplepager-payloads/}"
+        branch="${url_path%%/*}"
+        folder_path="${url_path#*/}"
+        folder_path="${folder_path%/payload.sh}"
+        full_repo="${repo_owner}/wifipineapplepager-payloads"
+        local rel_path="${folder_path#library/}"
+        local target_path="/root/payloads/${rel_path}"
+        local payload_name="${rel_path##*/}"
+    fi
 
     INSTALL_DIR="/tmp/nautilus_install_$$"
     mkdir -p "$INSTALL_DIR"
@@ -1174,20 +1189,27 @@ install_github() {
     done
     rm -f "$queue_file"
 
+    # Determine main file based on install type
+    if [ "$install_type" = "theme" ]; then
+        main_file="theme.json"
+    else
+        main_file="payload.sh"
+    fi
+
     if [ "$api_failed" = "1" ] && [ "$download_count" = "0" ]; then
-        sse_msg "yellow" "[Install] API unavailable, downloading payload.sh only..."
+        sse_msg "yellow" "[Install] API unavailable, downloading $main_file only..."
         dl_ok=0
         if command -v wget >/dev/null 2>&1; then
-            wget -q -O "$INSTALL_DIR/payload.sh" "$github_url" 2>/dev/null && dl_ok=1
+            wget -q -O "$INSTALL_DIR/$main_file" "$github_url" 2>/dev/null && dl_ok=1
         fi
         if [ "$dl_ok" != "1" ] && command -v curl >/dev/null 2>&1; then
-            curl -sf -o "$INSTALL_DIR/payload.sh" "$github_url" 2>/dev/null && dl_ok=1
+            curl -sf -o "$INSTALL_DIR/$main_file" "$github_url" 2>/dev/null && dl_ok=1
         fi
         if [ "$dl_ok" = "1" ]; then
             download_count=1
-            sse_msg "green" "[Install] Downloaded: payload.sh"
+            sse_msg "green" "[Install] Downloaded: $main_file"
         else
-            sse_msg "red" "[Install] Failed to download payload.sh"
+            sse_msg "red" "[Install] Failed to download $main_file"
             printf 'event: done\ndata: {"status":"error","message":"Download failed"}\n\n'
             rm -rf "$INSTALL_DIR"
             rm -f /tmp/nautilus_install_target
@@ -1195,9 +1217,9 @@ install_github() {
         fi
     fi
 
-    if [ ! -f "$INSTALL_DIR/payload.sh" ]; then
-        sse_msg "red" "[Install] payload.sh not found in downloaded files"
-        printf 'event: done\ndata: {"status":"error","message":"payload.sh not found"}\n\n'
+    if [ ! -f "$INSTALL_DIR/$main_file" ]; then
+        sse_msg "red" "[Install] $main_file not found in downloaded files"
+        printf 'event: done\ndata: {"status":"error","message":"Main file not found"}\n\n'
         rm -rf "$INSTALL_DIR"
         rm -f /tmp/nautilus_install_target
         exit 1
@@ -1206,7 +1228,7 @@ install_github() {
     sse_msg "cyan" "[Install] Installing to $target_path..."
     mkdir -p "$(dirname "$target_path")"
     mv "$INSTALL_DIR" "$target_path"
-    chmod +x "$target_path/payload.sh"
+    [ "$install_type" != "theme" ] && chmod +x "$target_path/payload.sh"
 
     rm -f /tmp/nautilus_install_target
 

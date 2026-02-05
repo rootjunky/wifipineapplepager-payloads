@@ -13,6 +13,10 @@ All notable changes to Nautilus will be documented in this file.
   - Delete loot files
   - Full subdirectory path shown as categories
 
+### Fixed
+
+- **Theme Install from Merged**: Fixed "Locally Install" button for themes from Merged tab - now properly accepts `wifipineapplepager-themes` repo URLs and installs to `/root/themes/`
+
 ## [1.8.3] - 2026-01-30
 
 ### Added
