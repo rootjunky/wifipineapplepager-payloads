@@ -143,7 +143,7 @@ esac
 
 # Sending QUACK command over SSH
 spinnerid=$(START_SPINNER "Sending QUACK command...")
-sshpass -p "$croc_passwd" ssh -o StrictHostKeyChecking=no root@$croc_ip <<EOF
+sshpass -p "$croc_passwd" ssh -o StrictHostKeyChecking=no root@$croc_ip <<EOF || true
 $( if [[ -f "$quack" ]]; then
 	cat "$quack"
 else
