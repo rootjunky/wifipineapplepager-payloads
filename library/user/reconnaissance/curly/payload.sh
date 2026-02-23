@@ -338,7 +338,6 @@ scan_ip_geolocation() {
 }
 
 # WHOIS Domain Registration Info
-# WHOIS Domain Registration Info
 scan_whois() {
     log_result "[+] WHOIS DOMAIN INFO"
     led_scanning
