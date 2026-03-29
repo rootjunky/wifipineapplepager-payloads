@@ -1,12 +1,11 @@
 #!/bin/bash
-# Title: Recon-DB Engagement Report Generator
+# Title: Engagement Report Generator
 # Description: Queries native recon database and produces a plain-text
 #              engagement report. Uses exec stdout redirect for reliable
 #              file writing on BusyBox.
-# Author: 0xD1G5
+# Author: Digs
 # Version: 3.5
 # Type: User payload
-# Category: Reorting
 # Requires: sqlite3 (opkg install sqlite3-cli if missing)
 
 # CONFIG
@@ -29,9 +28,9 @@ if [ ! -f $RECON_DB ]; then
 fi
 
 # METADATA
-engagement="DATE_LOCATION_WIRELESS_RECON"
-target_org="Acme Corp"
-operator="UPDATE_WITH_YOUR_NAME"
+engagement="Engagement"
+target_org="Target Org"
+operator="Digs"
 
 # SETUP
 mkdir -p $REPORT_DIR
@@ -39,7 +38,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RF=$REPORT_DIR/report_$TIMESTAMP.txt
 GENERATED_AT=$(date +%Y-%m-%d_%H:%M:%S)
 
-SPINNER1=$(START_SPINNER "Gathering data...")
+START_SPINNER "Gathering data..."
 
 cp $RECON_DB $RECON_DB_COPY
 DB=$RECON_DB_COPY
@@ -84,8 +83,8 @@ rogue_count=0
 [ -f $ROGUE_LOG ] && rogue_count=$(grep -c ROGUE $ROGUE_LOG 2>/dev/null || echo 0)
 cred_count=$(sqlite3 $DB "SELECT count(*) FROM hostap_basic;")
 
-STOP_SPINNER $SPINNER1
-SPINNER2=$(START_SPINNER "Writing report...")
+STOP_SPINNER
+START_SPINNER "Writing report..."
 
 # REDIRECT STDOUT TO REPORT FILE
 # Save original stdout to fd 3, redirect stdout to report file.
@@ -263,21 +262,45 @@ echo "==========================================================================
 echo "  END OF REPORT -- $GENERATED_AT"
 echo "================================================================================"
 
-# CSV OUTPUT - written while stdout is still redirected to report file
-# Restore stdout first so CSV goes to its own file
+# CSV OUTPUT
+# Restore stdout before writing CSV to its own file
 exec 1>&3
 exec 3>&-
 
 CF=$REPORT_DIR/report_$TIMESTAMP.csv
 
-# AP CSV
-sqlite3 -csv $DB "SELECT 'BSSID','SSID','Band','Channel','Encryption','Signal','Packets','Hidden','Last_Seen';" > $CF
-sqlite3 -csv $DB "SELECT substr(s.bssid,1,2)||':'||substr(s.bssid,3,2)||':'||substr(s.bssid,5,2)||':'||substr(s.bssid,7,2)||':'||substr(s.bssid,9,2)||':'||substr(s.bssid,11,2), CAST(s.ssid AS TEXT), CASE WHEN s.freq >= 5925 THEN '6 GHz' WHEN s.freq >= 5000 THEN '5 GHz' ELSE '2.4 GHz' END, s.channel, CASE WHEN s.encryption IS NULL OR s.encryption = 0 THEN 'Open' WHEN (s.encryption & 2) != 0 AND (s.encryption & 8) = 0 THEN 'WEP' WHEN ((s.encryption & 16) != 0 OR (s.encryption & 64) != 0) AND (s.encryption & 8) != 0 THEN 'WPA2/WPA3' WHEN (s.encryption & 16) != 0 OR (s.encryption & 64) != 0 THEN 'WPA3' WHEN (s.encryption & 4) != 0 AND (s.encryption & 8) != 0 THEN 'WPA/WPA2' WHEN (s.encryption & 8) != 0 THEN 'WPA2' ELSE 'Unknown' END, s.signal, w.packets, s.hidden, datetime(s.time,'unixepoch') FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=8 ORDER BY s.signal DESC LIMIT 500;" >> $CF
+# Write SQL to a temp file - avoids all shell quoting issues entirely
+# The heredoc preserves quotes exactly as written with no shell interpretation
+cat > /tmp/pager_csv.sql << 'SQLEOF'
+.mode csv
+.headers on
+SELECT
+  substr(s.bssid,1,2)||':'||substr(s.bssid,3,2)||':'||substr(s.bssid,5,2)||':'||substr(s.bssid,7,2)||':'||substr(s.bssid,9,2)||':'||substr(s.bssid,11,2) AS BSSID,
+  CAST(s.ssid AS TEXT) AS SSID,
+  CASE WHEN s.freq >= 5925 THEN '6 GHz' WHEN s.freq >= 5000 THEN '5 GHz' ELSE '2.4 GHz' END AS Band,
+  s.channel AS Channel,
+  CASE WHEN s.encryption IS NULL OR s.encryption = 0 THEN 'Open'
+       WHEN (s.encryption & 2) != 0 AND (s.encryption & 8) = 0 THEN 'WEP'
+       WHEN ((s.encryption & 16) != 0 OR (s.encryption & 64) != 0) AND (s.encryption & 8) != 0 THEN 'WPA2/WPA3'
+       WHEN (s.encryption & 16) != 0 OR (s.encryption & 64) != 0 THEN 'WPA3'
+       WHEN (s.encryption & 4) != 0 AND (s.encryption & 8) != 0 THEN 'WPA/WPA2'
+       WHEN (s.encryption & 8) != 0 THEN 'WPA2'
+       ELSE 'Unknown' END AS Encryption,
+  s.signal AS Signal,
+  w.packets AS Packets,
+  s.hidden AS Hidden,
+  datetime(s.time,'unixepoch') AS Last_Seen
+FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash
+WHERE s.type=8 ORDER BY s.signal DESC LIMIT 500;
+SQLEOF
+
+sqlite3 $DB < /tmp/pager_csv.sql > $CF
+rm -f /tmp/pager_csv.sql
 
 LOG "CSV: $CF"
 
 # CLEANUP AND NOTIFY
-STOP_SPINNER $SPINNER2
+STOP_SPINNER
 rm -f $RECON_DB_COPY
 
 LOG "Report: $RF"
