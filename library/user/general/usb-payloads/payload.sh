@@ -2,7 +2,7 @@
 # title: USB Payloads
 # description: Mount/Unmount USB storage and link payloads from USB
 # author: RootJunky
-# version: 2
+# version: 3
 
 USB_MOUNT="/usb"
 USB_PAYLOADS="$USB_MOUNT/payloads"
