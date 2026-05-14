@@ -24,7 +24,7 @@ CHOICE=$(LIST_PICKER "USB Payloads" \
 "Mount USB + Link Payloads" \
 "Unmount USB + Remove Link" \
 "Refresh Link Only" \
-"Exit"\
+"Exit" \
 "Mount USB + Link Payloads")
 
 case "$CHOICE" in
